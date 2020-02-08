@@ -1,64 +1,70 @@
-#!/bin/bash
-#################################################
-#                                               #
-# A shell script to install Jenkins on CentOS   #
-#                                               #
-#################################################
+#!/usr/bin/env bash
+# This script install Jenkins in your Ubuntu System
+#
+# This script must be run as root:
+#   $ sudo ./jenkins_install.sh
 
-# check if the current user is root
-if [[ $(/usr/bin/id -u) != "0" ]]; then
-    echo -e "This looks like a 'non-root' user.\nPlease switch to 'root' and run the script again."
-    exit
+if [[ $EUID -ne 0 ]]; then
+	echo "This script must be run as root" 1>&2
+	exit 1
 fi
 
-jvconfirm="y"
+# Install the necessary packages to prepare the environment
+sudo apt-get install autoconf bison build-essential libffi-dev libssl-dev
+sudo apt-get install libyaml-dev libreadline6 libreadline6-dev zlib1g zlib1g-dev curl git vim
 
-# Function to install Java using Yum
-install_java() {
-    echo -e "\nIn install_java\n"
-    yum update -y
-    yum install java -y
-    java_version=$(java -version 2>&1 >/dev/null | grep 'version')
-    echo -e "\n\nJava installation complete.\nJava version: $java_version\n\n"
-    install_jenkins
-}
+# Install PhantomJS (http://phantomjs.org/build.html)
+## First install the necessary packages
+sudo apt-get install g++ flex gperf ruby perl libsqlite3-dev libfontconfig1-dev
+sudo apt-get install libicu-dev libfreetype6 libssl-dev libpng-dev libjpeg-dev
 
-# Function to install Jenkins using the Jenkins repo
-install_jenkins() {
-    echo -e "\nIn install_jenkins\n"
-    yum install git -y
-    wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
-    rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key
-    yum install jenkins -y
-    chkconfig jenkins on
+## Then build PhantomJS
+cd /usr/local/share
+git clone git://github.com/ariya/phantomjs.git
+cd phantomjs
+git checkout 1.9
+./build.sh
 
-    firewall-cmd --zone=public --add-port=8080/tcp --permanent
-    firewall-cmd --reload
+## Then provide phantomjs to system
+## to check the version of phantomjs user: $ phantomjs --version
+sudo ln -sf /usr/local/share/phantomjs/bin/phantomjs /usr/local/bin
 
-    systemctl start jenkins
-    systemctl status jenkins
+# Install Jenkins
+## Before install is necessary to add Jenkins to trusted keys and source list
+wget -q -O - http://pkg.jenkins-ci.org/debian/jenkins-ci.org.key | sudo apt-key add -
+sudo sh -c 'echo deb http://pkg.jenkins-ci.org/debian binary/ > /etc/apt/sources.list.d/jenkins.list'
+sudo apt-get update
+sudo apt-get install jenkins
 
-    firewall-cmd --zone=public --add-port=8080/tcp --permanent
-    firewall-cmd --reload
+# Install and Configure Mysql to Jenkins
+## Install the necessary packages (I used password: root)
+sudo apt-get install mysql-client libmysqlclient-dev mysql-server
 
-    local_ip=$(hostname -I)
-    echo -e "\n\nJenkins installation is complete.\nAccess the Jenkins interface from http://$local_ip:8080\nThe default password is located at '/var/lib/jenkins/secrets/initialAdminPassword'\n\nExiting..."
-    exit
-}
+## Add user to jenkins
+## You can check if user was created using: SELECT User FROM mysql.user;
+mysql --user=root --password=root -e \
+  "CREATE USER 'jenkins'@'localhost' IDENTIFIED BY 'jenkins';
+   GRANT ALL PRIVILEGES ON * . * TO 'jenkins'@'localhost';
+   FLUSH PRIVILEGES;\q"
 
-# Check if Java is installed, and install Jenkins
-if $(java -version 2>&1 >/dev/null | grep 'version'); then
-    echo -e "\nJava is installed, proceeding with Jenkins installation."
-    install_jenkins
-else
-    echo -e "\nJenkins requires Java to be installed. Proceed?(Y/n):"
-    read jvconfirm
-    if [ "$jvconfirm" == "y" ] || [ "$jvconfirm" = "Y" ]; then
-        install_java
-    elif [ "$jvconfirm" = "n" ] || [ "$jvconfirm" = "N" ]; then
-        echo -e "\nJenkins requires Java to be installed first. Aborting install process..."
-        exit
-    else
-        echo -e "\nInvalid input. Exiting..."
-    fi
-fi
+# Create sample_database.yml
+## BUIL_TAG is a String of "jenkins-${JOB_NAME}-${BUILD_NUMBER}":
+##   - JOB_NAME=company-branch
+##   - BUILD_NUMBER=99
+##   - BUIL_TAG=company-branch-99
+sudo touch /var/lib/jenkins/sample_database.yml
+sudo chmod 755 /var/lib/jenkins/sample_database.yml
+
+cat <<EOT >> /var/lib/jenkins/sample_database.yml
+default: &default
+  adapter: mysql2
+  username: 'jenkins'
+  password: 'jenkins'
+  host: 'localhost'
+  pool: 100
+  encoding: utf8
+  reconnect: true
+test:
+  <<: *default
+  database: <%= "sample-test-#{ENV['BUILD_TAG']}" %>
+EOT
