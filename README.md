@@ -5,3 +5,4 @@ This repo contains bash shell scripts to cover the basic of Linux commands and s
 Python is added to .gitignore
 .pyc also
 *.abc also
+git fetch and git merge
