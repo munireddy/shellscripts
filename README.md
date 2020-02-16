@@ -6,3 +6,5 @@ Python is added to .gitignore
 .pyc also
 *.abc also
 git fetch and git merge
+
+CHange for merge conflict
