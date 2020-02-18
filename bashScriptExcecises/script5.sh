@@ -2,14 +2,14 @@
 string_null=""
 string1="string1"
  
-if [ $string_null -n ]
+if [ "$string_null" -n ]
 then
         echo "not null string"
 else
         echo "null string"
 fi
  
-if [ $string_null -z ]
+if [ "$string_null" -z ]
 then
         echo "null string"
 else
